@@ -1,0 +1,162 @@
+import cv2
+import numpy as np
+import dlib
+from imutils import face_utils
+import threading
+from playsound import playsound
+import mysql.connector
+from datetime import datetime
+
+
+cap = cv2.VideoCapture(0)        # Initialize the camera and the detectors
+detector = dlib.get_frontal_face_detector()
+predictor = dlib.shape_predictor("shape_predictor_68_face_landmarks.dat")
+
+
+sleep = 0   # Status 
+drowsy = 0
+active = 0
+current_status = None
+status_start_time = datetime.now()
+alarm_on = False
+
+
+conn = mysql.connector.connect(         # Connecting to database
+    host="localhost",
+    user="root",
+    password="Root",
+    database="driver_info"
+)
+
+cursor = conn.cursor()
+
+# Create Table
+cursor.execute('''
+    CREATE TABLE IF NOT EXISTS drowsiness_data (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        start_time DATETIME,                           
+        end_time DATETIME,
+        duration_seconds INT,
+        status VARCHAR(255)
+    )
+''')
+
+conn.commit()
+
+cursor.execute("""
+    UPDATE drowsiness_data 
+    SET status='Drowsy!' 
+    WHERE status LIKE 'Drowsy %%' OR status LIKE 'drowsy%%';
+""")
+conn.commit()
+
+
+def compute(ptA, ptB):         # points dis
+    return np.linalg.norm(ptA - ptB)
+
+def blinked(a, b, c, d, e, f):
+    up = compute(b, d) + compute(c, e)
+    down = compute(a, f)
+    ratio = up / (2.0 * down)
+    return 2 if ratio > 0.25 else 1 if (0.21 < ratio <= 0.25) else 0
+
+def play_alarm():
+    while(alarm_on):
+        playsound('wake_up.mp3')
+
+def log_status(start_time, end_time, duration_seconds, status):
+    cursor.execute("""
+        INSERT INTO drowsiness_data 
+        (start_time, end_time, duration_seconds, status) VALUES (%s, %s, %s, %s)
+    """, (start_time, end_time, duration_seconds, status))
+    conn.commit()
+
+
+while True:         # Main loop
+    ret, frame = cap.read()
+    if not ret:
+        break
+
+    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+    faces = detector(gray)
+    face_frame = frame.copy()  # Copy for the second window
+
+    new_status = None
+    color = (255, 255, 255)  # Default color before status is set
+
+    for face in faces:
+        landmarks = predictor(gray, face)
+        landmarks = face_utils.shape_to_np(landmarks)
+
+        left_blink = blinked(landmarks[36], landmarks[37], landmarks[38], landmarks[41], landmarks[40], landmarks[39])
+        right_blink = blinked(landmarks[42], landmarks[43], landmarks[44], landmarks[47], landmarks[46], landmarks[45])
+
+        if left_blink == 0 or right_blink == 0:
+            sleep += 1
+            drowsy = 0
+            active = 0            
+            if sleep > 6:
+                new_status = "SLEEPING !!!"
+                color = (0, 0, 255)
+                if not alarm_on:
+                    alarm_on = True
+                    threading.Thread(target=play_alarm).start()
+        elif left_blink == 1 or right_blink == 1:
+            sleep = 0
+            active = 0
+            drowsy += 1
+            if drowsy > 6:
+                new_status = "Drowsy!"
+                color = (0, 255, 255)
+                if not alarm_on:
+                    alarm_on = True
+                    threading.Thread(target=play_alarm).start()
+        else:
+            drowsy = 0
+            sleep = 0
+            active += 1
+            if active > 6:
+                new_status = "Active :)"
+                color = (0, 255, 0)
+                alarm_on = False
+
+        # Status change logging
+        if new_status != current_status:
+            status_end_time = datetime.now()
+            duration_seconds = (status_end_time - status_start_time).seconds
+            if current_status:
+                log_status(status_start_time, status_end_time, duration_seconds, current_status)
+            current_status = new_status
+            status_start_time = status_end_time
+
+        # Face coordinates
+        x, y, w, h = face.left(), face.top(), face.width(), face.height()
+
+        # === Left Frame: bounding box + landmarks ===
+        cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 255, 0), 2)
+        for (lx, ly) in landmarks:
+            cv2.circle(frame, (lx, ly), 2, (255, 255, 255), -1)
+
+        # === Right Frame: bounding box + status text ===
+        cv2.rectangle(face_frame, (x, y), (x + w, y + h), color, 2)
+        cv2.putText(face_frame, new_status, (x, y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.9, color, 2)
+
+    if new_status is None:
+        new_status = "Detecting..."
+
+    
+    cv2.imshow("Frame", frame)        # Show both windows
+    cv2.imshow("Result of detector", face_frame)
+
+    if cv2.waitKey(1) == 27:  # ESC to exit
+        if current_status is not None:
+            status_end_time = datetime.now()
+            duration_seconds = (status_end_time - status_start_time).seconds
+            log_status(status_start_time, status_end_time, duration_seconds, current_status)
+        alarm_on = False
+        break
+
+
+cap.release()
+cv2.destroyllWindows()
+conn.close()
