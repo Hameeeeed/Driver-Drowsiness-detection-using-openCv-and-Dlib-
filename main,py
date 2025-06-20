@@ -23,8 +23,8 @@ alarm_on = False
 
 conn = mysql.connector.connect(         # Connecting to database
     host="localhost",
-    user="root",
-    password="Root",
+    user="Local_host",
+    password="Your_Password",
     database="driver_info"
 )
 
