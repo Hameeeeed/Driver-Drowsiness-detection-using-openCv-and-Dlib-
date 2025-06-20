@@ -1,0 +1,44 @@
+create database driver_info;
+
+use driver_info;
+
+CREATE TABLE IF NOT EXISTS drowsiness_data (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+    status VARCHAR(255),
+    frame INT
+);
+
+
+INSERT INTO drowsiness_data (status, frame) VALUES ('Active :)', 10);
+
+
+ALTER TABLE drowsiness_data
+ADD COLUMN start_time DATETIME,
+ADD COLUMN end_time DATETIME,
+ADD COLUMN duration_seconds INT;
+
+DESCRIBE drowsiness_data;
+ALTER TABLE drowsiness_data ADD frame_count INT;
+CREATE TABLE IF NOT EXISTS drowsiness_data (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    start_time DATETIME,
+    end_time DATETIME,
+    duration_seconds INT,
+    status VARCHAR(255),
+    frame_count INT
+);
+
+
+ALTER TABLE drowsiness_data
+DROP COLUMN frame_count,
+DROP COLUMN frame;
+CREATE TABLE IF NOT EXISTS drowsiness_data (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    start_time DATETIME,
+    end_time DATETIME,
+    duration_seconds INT,
+    status VARCHAR(255)
+);
+
+SELECT * FROM drowsiness_data;
